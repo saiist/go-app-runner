@@ -62,7 +62,7 @@ resource "aws_ecr_repository_policy" "app_policy" {
 
 # App Runner用IAMロール
 resource "aws_iam_role" "apprunner_access_role" {
-  name = "apprunner-ecr-access-role"
+  name = "${var.app_name}-apprunner-access-role"
 
   assume_role_policy = jsonencode({
     Version = "2012-10-17"
@@ -76,6 +76,8 @@ resource "aws_iam_role" "apprunner_access_role" {
       }
     ]
   })
+
+  tags = local.tags
 }
 
 # ECRアクセス用のポリシーをロールにアタッチ
@@ -136,4 +138,21 @@ output "ecr_repository_url" {
 output "app_runner_service_url" {
   value       = aws_apprunner_service.app.service_url
   description = "App Runner Service URL"
+}
+
+output "deployment_instructions" {
+  value = <<-EOT
+    App Runner サービスのセットアップが完了しました。
+    
+    サービスURL: ${aws_apprunner_service.app.service_url}
+    
+    GitHub Actionsによる自動デプロイを設定するには：
+    1. GitHub リポジトリにSecrets を追加:
+       - AWS_ACCESS_KEY_ID
+       - AWS_SECRET_ACCESS_KEY
+    2. .github/workflows/deploy.yml ファイルを追加
+    
+    自動デプロイは ECR への新しいイメージのプッシュで自動的に開始されます（auto_deployments_enabled = true）
+  EOT
+  description = "デプロイ手順"
 }

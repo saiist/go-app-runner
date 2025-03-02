@@ -8,18 +8,17 @@ import (
 )
 
 func main() {
-	// ポート番号を環境変数から取得（App Runner対応）
 	port := os.Getenv("PORT")
 	if port == "" {
-		port = "8080" // デフォルトポート
+		port = "8080"
 	}
 
-	// ルートパスのハンドラを登録
+	// ルートパス
 	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		fmt.Fprintf(w, "Hello, AWS App Runner from Go!")
 	})
 
-	// ヘルスチェック用エンドポイント
+	// ヘルスチェック用
 	http.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	})
