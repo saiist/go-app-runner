@@ -30,21 +30,60 @@ jobs:
         aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
         aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
         aws-region: ${{ env.AWS_REGION }}
+    
+    - name: Check AWS resources
+      id: check-resources
+      run: |
+        echo "Checking if the required AWS resources exist..."
+        
+        # ECRリポジトリの存在確認
+        if ! aws ecr describe-repositories --repository-names $ECR_REPOSITORY --region $AWS_REGION &>/dev/null; then
+          echo "::error::ECRリポジトリ '$ECR_REPOSITORY' が見つかりません。"
+          echo "::error::以下のコマンドでTerraformを実行してインフラストラクチャを作成してください："
+          echo "::error::  make tf-init"
+          echo "::error::  make tf-apply"
+          echo "::error::または、AWS管理コンソールでECRリポジトリを確認してください。"
+          echo "ecr_exists=false" >> $GITHUB_OUTPUT
+          exit 1
+        else
+          echo "ECRリポジトリ '$ECR_REPOSITORY' が見つかりました。"
+          echo "ecr_exists=true" >> $GITHUB_OUTPUT
+        fi
+        
+        # App Runnerサービスの存在確認
+        SERVICE_ARN=$(aws apprunner list-services --region $AWS_REGION --query "ServiceSummaryList[?ServiceName=='$APP_RUNNER_SERVICE'].ServiceArn" --output text)
+        if [ -z "$SERVICE_ARN" ]; then
+          echo "::error::App Runnerサービス '$APP_RUNNER_SERVICE' が見つかりません。"
+          echo "::error::以下のコマンドでTerraformを実行してインフラストラクチャを作成してください："
+          echo "::error::  make tf-init"
+          echo "::error::  make tf-apply"
+          echo "::error::または、AWS管理コンソールでApp Runnerサービスを確認してください。"
+          echo "apprunner_exists=false" >> $GITHUB_OUTPUT
+          exit 1
+        else
+          echo "App Runnerサービス '$APP_RUNNER_SERVICE' が見つかりました (ARN: $SERVICE_ARN)。"
+          echo "apprunner_exists=true" >> $GITHUB_OUTPUT
+          echo "service_arn=$SERVICE_ARN" >> $GITHUB_OUTPUT
+        fi
         
     - name: Login to Amazon ECR
       id: login-ecr
+      if: steps.check-resources.outputs.ecr_exists == 'true'
       uses: aws-actions/amazon-ecr-login@v1
       
     - name: Build and push Docker image
       id: build-image
+      if: steps.check-resources.outputs.ecr_exists == 'true'
       env:
         ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
         IMAGE_TAG: ${{ github.sha }}
       run: |
+        echo "Dockerイメージをビルドしています..."
         # Dockerイメージをビルド
         docker build -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG .
         docker tag $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG $ECR_REGISTRY/$ECR_REPOSITORY:latest
         
+        echo "イメージをECRにプッシュしています..."
         # ECRにプッシュ
         docker push $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
         docker push $ECR_REGISTRY/$ECR_REPOSITORY:latest
@@ -52,16 +91,19 @@ jobs:
         # outputを設定
         echo "image=$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG" >> $GITHUB_OUTPUT
         
-    - name: Verify App Runner Service Status
-      run: |
-        # App Runner サービスのステータスを確認
-        SERVICE_ARN=$(aws apprunner list-services --region $AWS_REGION --query "ServiceSummaryList[?ServiceName=='$APP_RUNNER_SERVICE'].ServiceArn" --output text)
+        echo "イメージのビルドとプッシュが完了しました。"
+        echo "イメージタグ: $IMAGE_TAG"
+        echo "イメージURI: $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG"
         
-        if [ -n "$SERVICE_ARN" ]; then
-          echo "App Runner service found: $SERVICE_ARN"
-          echo "Image successfully pushed to ECR. Auto-deployments will handle the update."
-        else
-          echo "Warning: App Runner service '$APP_RUNNER_SERVICE' not found!"
-          echo "Please run terraform apply to create the required infrastructure first."
-          exit 1
-        fi
+    - name: Deployment Status
+      if: steps.check-resources.outputs.apprunner_exists == 'true' && steps.build-image.outcome == 'success'
+      run: |
+        echo "デプロイ準備が完了しました！"
+        echo "新しいイメージが正常にECRにプッシュされました。"
+        echo "App Runnerの自動デプロイ機能により、まもなく新しいバージョンがデプロイされます。"
+        echo "App Runnerサービス: ${{ steps.check-resources.outputs.service_arn }}"
+        
+        # デプロイの進行状況を確認する方法を表示
+        echo "デプロイの進行状況を確認するには、AWS管理コンソールのApp Runnerサービスページを確認してください。"
+        echo "または、以下のAWS CLIコマンドを使用してください："
+        echo "aws apprunner list-operations --service-arn \"${{ steps.check-resources.outputs.service_arn }}\" --region $AWS_REGION"
