@@ -1,0 +1,4 @@
+# アプリケーション設定
+app_name = "go-app-runner"
+image_tag = "latest"
+region    = "ap-northeast-1"
